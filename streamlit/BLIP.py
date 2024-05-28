@@ -3,7 +3,6 @@ import cv2
 import easyocr
 import os
 import torch
-import soundfile as sf
 from moviepy.editor import VideoFileClip
 import speech_recognition as sr
 import mysql.connector
@@ -11,6 +10,29 @@ import requests
 
 # Initialize OCR Reader
 reader = easyocr.Reader(['en'])
+
+def extract_audio_from_video(video_path, output_audio_path):
+    video_clip = VideoFileClip(video_path)
+    audio_clip = video_clip.audio
+    audio_clip.write_audiofile(output_audio_path)
+    video_clip.close()
+    audio_clip.close()
+
+def transcribe_audio_to_text(audio_path):
+    recognizer = sr.Recognizer()
+    audio_file = sr.AudioFile(audio_path)
+    
+    with audio_file as source:
+        audio_data = recognizer.record(source)
+    
+    try:
+        # Using Google Web Speech API
+        text = recognizer.recognize_google(audio_data)
+        return text
+    except sr.UnknownValueError:
+        return "Google Speech Recognition could not understand the audio"
+    except sr.RequestError as e:
+        return f"Could not request results from Google Speech Recognition service; {e}"
 
 def extract_text_from_frames(video_path, interval=30):
     cap = cv2.VideoCapture(video_path)
@@ -27,17 +49,6 @@ def extract_text_from_frames(video_path, interval=30):
         frame_count += 1
 
     cap.release()
-    return " ".join(text_data)
-
-def extract_text_from_audio(audio_path):
-    recognizer = sr.Recognizer()
-    audio_clip = sr.AudioFile(audio_path)
-    text_data = []
-
-    with audio_clip as source:
-        audio = recognizer.record(source)
-        text_data.append(recognizer.recognize_google(audio))
-
     return " ".join(text_data)
 
 def insert_caption_data(text, summary):
@@ -159,16 +170,21 @@ def main():
             st.video(file_path)
             with st.spinner("Extracting text from video..."):
                 extracted_text = extract_text_from_frames(file_path)
+                # Extract audio from video and transcribe it to text
+                audio_path = file_path.replace('.mp4', '.wav')  # Assuming the video is in .mp4 format
+                extract_audio_from_video(file_path, audio_path)
+                audio_text = transcribe_audio_to_text(audio_path)
+                extracted_text = audio_text
         else:
             st.audio(file_path)
             with st.spinner("Extracting text from audio..."):
-                extracted_text = extract_text_from_audio(file_path)
+                extracted_text = transcribe_audio_to_text(file_path)
 
         st.subheader("Extracted Text:")
         st.write(extracted_text)
 
         if st.button("Save to Database"):
-            insert_caption_data("Extracted Text", extracted_text)
+            insert_caption_data(extracted_text, extracted_text)
 
 if __name__ == "__main__":
     main()
